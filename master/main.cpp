@@ -23,42 +23,83 @@
 #include <opendnp3/channel/PrintingChannelListener.h>
 #include <opendnp3/logging/LogLevels.h>
 #include <opendnp3/master/DefaultMasterApplication.h>
+#include <opendnp3/master/ISOEHandler.h>
 #include <opendnp3/master/PrintingCommandResultCallback.h>
 #include <opendnp3/master/PrintingSOEHandler.h>
-#include <opendnp3/master/ISOEHandler.h>
+
+#include <iostream>
+#include <memory>
+#include <sstream>
 
 using namespace std;
 using namespace opendnp3;
 
+std::ostream& operator<<(std::ostream& os, const ResponseInfo& info)
+{
+    os << "unsolicited: " << info.unsolicited << " fir: " << info.fir << " fin: " << info.fin;
+    return os;
+}
+
 class TestSOEHandler : public ISOEHandler
 {
-    virtual void BeginFragment(const ResponseInfo& info){};
-    virtual void EndFragment(const ResponseInfo& info){};
+public:
+    friend std::ostream& operator<<(std::ostream& os, const ResponseInfo& info);
 
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<Binary>>& values) {
-           /* auto print = [](const Indexed<Binary>& pair) {
-            std::cout << "[" << pair.index << "] : " << pair.value << std::endl;
-            };
-    values.ForeachItem(print);*/
-
+    void BeginFragment(const ResponseInfo& info)
+    {
+        std::cout << "begin response: " << info << std::endl;
     };
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<DoubleBitBinary>>& values) {};
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<Analog>>& values) {};
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<Counter>>& values) {
-        auto print = [](const Indexed<Counter>& pair) {
-            std::cout <<"the count value"<< pair.value.value << std::endl;
-            };
+    void EndFragment(const ResponseInfo& info)
+    {
+        std::cout << "end response: " << info << std::endl;
+    };
+
+    void Process(const HeaderInfo& info, const ICollection<Indexed<Binary>>& values){
+        /* auto print = [](const Indexed<Binary>& pair) {
+         std::cout << "[" << pair.index << "] : " << pair.value << std::endl;
+         };
+ values.ForeachItem(print);*/
+        /*auto print = [&](const Indexed<T>& pair) { Print<T>(info, pair.value, pair.index); };
+            values.ForeachItem(print);
+            return 0;*/
+    };
+    void Process(const HeaderInfo& info, const ICollection<Indexed<DoubleBitBinary>>& values){};
+    void Process(const HeaderInfo& info, const ICollection<Indexed<Analog>>& values){};
+    void Process(const HeaderInfo& info, const ICollection<Indexed<Counter>>& values)
+    {
+        return PrintAll(info, values);
+    };
+    void Process(const HeaderInfo& info, const ICollection<Indexed<FrozenCounter>>& values){};
+    void Process(const HeaderInfo& info, const ICollection<Indexed<BinaryOutputStatus>>& values){};
+    void Process(const HeaderInfo& info, const ICollection<Indexed<AnalogOutputStatus>>& values){};
+    void Process(const HeaderInfo& info, const ICollection<Indexed<OctetString>>& values){};
+    void Process(const HeaderInfo& info, const ICollection<Indexed<TimeAndInterval>>& values){};
+    void Process(const HeaderInfo& info, const ICollection<Indexed<BinaryCommandEvent>>& values){};
+    void Process(const HeaderInfo& info, const ICollection<Indexed<AnalogCommandEvent>>& values){};
+    void Process(const HeaderInfo& info, const ICollection<DNPTime>& values){};
+
+private:
+    template<class T> static void PrintAll(const HeaderInfo& info, const ICollection<Indexed<T>>& values)
+    {
+        auto print = [&](const Indexed<T>& pair) { Print<T>(info, pair.value, pair.index); };
         values.ForeachItem(print);
-    };
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<FrozenCounter>>& values) {};
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<BinaryOutputStatus>>& values) {};
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<AnalogOutputStatus>>& values) {};
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<OctetString>>& values) {};
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<TimeAndInterval>>& values) {};
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<BinaryCommandEvent>>& values) {};
-    virtual void Process(const HeaderInfo& info, const ICollection<Indexed<AnalogCommandEvent>>& values) {};    
-    virtual void Process(const HeaderInfo& info, const ICollection<DNPTime>& values) {};
+    }
+
+    template<class T> static void Print(const HeaderInfo& info, const T& value, uint16_t index)
+    {
+        std::cout << "test for counter to try print"
+                  << "[" << index << "] : " << ValueToString(value) << " : " << static_cast<int>(value.flags.value)
+                  << " : " << value.time.value << std::endl;
+    }
+
+    template<class T> static std::string ValueToString(const T& meas)
+    {
+        std::ostringstream oss;
+        oss << meas.value;
+        return oss.str();
+    }
 };
+
 
 int main(int argc, char* argv[])
 {
@@ -70,8 +111,8 @@ int main(int argc, char* argv[])
     DNP3Manager manager(1, ConsoleLogger::Create());
 
     // Connect via a TCPClient socket to a outstation
-    auto channel = manager.AddTCPClient("tcpclient", logLevels, ChannelRetry::Default(), {IPEndpoint("127.0.0.1", 20000)},
-                                        "0.0.0.0", PrintingChannelListener::Create());
+    auto channel = manager.AddTCPClient("tcpclient", logLevels, ChannelRetry::Default(),
+                                        {IPEndpoint("127.0.0.1", 20000)}, "0.0.0.0", PrintingChannelListener::Create());
 
     // The master config object for a master. The default are
     // useable, but understanding the options are important.
@@ -90,7 +131,7 @@ int main(int argc, char* argv[])
     // Create a new master on a previously declared port, with a
     // name, log level, command acceptor, and config info. This
     // returns a thread-safe interface used for sending commands.
-    //auto test_soe_handler = TestSOEHandler::ISOEHandler;
+    // auto test_soe_handler = TestSOEHandler::ISOEHandler;
     auto master = channel->AddMaster("master",                           // id for logging
                                      PrintingSOEHandler::Create(),       // callback for data processing
                                      DefaultMasterApplication::Create(), // master application instance
@@ -100,10 +141,11 @@ int main(int argc, char* argv[])
     auto test_soe_handler = std::make_shared<TestSOEHandler>();
 
     // do an integrity poll (Class 3/2/1/0) once per minute
-    //auto integrityScan = master->AddClassScan(ClassField::AllClasses(), TimeDuration::Minutes(1), test_soe_handler);
+    // auto integrityScan = master->AddClassScan(ClassField::AllClasses(), TimeDuration::Minutes(1), test_soe_handler);
 
     // do a Class 1 exception poll every 5 seconds
-    //auto exceptionScan = master->AddClassScan(ClassField(ClassField::CLASS_1), TimeDuration::Minutes(1), test_soe_handler);
+    auto exceptionScan
+        = master->AddClassScan(ClassField(ClassField::CLASS_1), TimeDuration::Minutes(600), test_soe_handler);
 
     // Enable the master. This will start communications.
     master->Enable();
@@ -137,8 +179,7 @@ int main(int argc, char* argv[])
             master->PerformFunction("disable unsol", FunctionCode::DISABLE_UNSOLICITED,
                                     {Header::AllObjects(60, 2), Header::AllObjects(60, 3), Header::AllObjects(60, 4)});
             break;
-        case ('r'):
-        {
+        case ('r'): {
             auto print = [](const RestartOperationResult& result) {
                 if (result.summary == TaskCompletion::SUCCESS)
                 {
@@ -152,9 +193,9 @@ int main(int argc, char* argv[])
             master->Restart(RestartType::COLD, print);
             break;
         }
-        case('m'):
-        {
-            master->PerformFunction("read",FunctionCode::READ,{Header::AllObjects(20,1)}); //group 20 variation 1 count 32bit with flag
+        case ('m'): {
+            master->PerformFunction("read", FunctionCode::READ,
+                                    {Header::AllObjects(20, 1)}); // group 20 variation 1 count 32bit with flag
 
             break;
         }
@@ -162,27 +203,24 @@ int main(int argc, char* argv[])
             // C++ destructor on DNP3Manager cleans everything up for you
             return 0;
         case ('i'):
-            //integrityScan->Demand();
+            // integrityScan->Demand();
             break;
         case ('e'):
-            //exceptionScan->Demand();
+            exceptionScan->Demand();
             break;
-        case ('c'):
-        {
+        case ('c'): {
             ControlRelayOutputBlock crob(OperationType::LATCH_ON);
             master->SelectAndOperate(crob, 0, PrintingCommandResultCallback::Get());
             break;
         }
-        case ('t'):
-        {
+        case ('t'): {
             channelCommsLoggingEnabled = !channelCommsLoggingEnabled;
             auto levels = channelCommsLoggingEnabled ? levels::ALL_COMMS : levels::NORMAL;
             channel->SetLogFilters(levels);
             std::cout << "Channel logging set to: " << levels.get_value() << std::endl;
             break;
         }
-        case ('u'):
-        {
+        case ('u'): {
             masterCommsLoggingEnabled = !masterCommsLoggingEnabled;
             auto levels = masterCommsLoggingEnabled ? levels::ALL_COMMS : levels::NORMAL;
             master->SetLogFilters(levels);
